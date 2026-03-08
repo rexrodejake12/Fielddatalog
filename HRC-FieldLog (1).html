@@ -958,77 +958,83 @@
     btn.innerHTML = '<span class="loading-dots"><span></span><span></span><span></span></span>';
 
     // AI shopping list
-    let items = [];
-    if (need) {
-      try {
-        const r = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 300,
-            messages: [{ role: "user", content: `Extract a shopping list from these contractor field notes. Return ONLY a valid JSON array of short strings (one item per entry). No markdown, no explanation, no backticks — just the raw JSON array.\n\nNotes: "${need}"` }]
-          })
-        });
-        const d = await r.json();
-        const raw = d.content.map(i => i.text || '').join('').trim();
-        const cleaned = raw.replace(/```json|```/g, '').trim();
-        items = JSON.parse(cleaned);
-      } catch(e) {
-        items = need.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-      }
-    }
-
-    // Persist
-    const logs = JSON.parse(localStorage.getItem('hrc_logs') || '[]');
-    logs.unshift({ id: Date.now(), project, date, did, dirt, need, mood: moodVal, items, savedAt: new Date().toISOString() });
-    localStorage.setItem('hrc_logs', JSON.stringify(logs));
-    if (items.length) localStorage.setItem('hrc_tomorrow', JSON.stringify({ project, items, date }));
-
-    // Scan animation
-    const overlay = document.getElementById('scan-overlay');
-    overlay.classList.add('active');
-    setTimeout(() => overlay.classList.remove('active'), 1300);
-
-    // Show shopping list
-    if (items.length) {
-      document.getElementById('shop-list').innerHTML = items.map((item,i) => `
-        <li class="shop-item" id="si-${i}" onclick="toggleShop(${i})">
-          <div class="shop-check" id="sc-${i}"></div>
-          <span>${item}</span>
-        </li>`).join('');
-      document.getElementById('shopping-card').classList.add('show');
-    }
-
-    renderHistory();
-
-    btn.disabled = false;
-    btn.textContent = '✓ LOGGED';
-    setTimeout(() => btn.textContent = 'SAVE LOG + BUILD LIST', 2500);
+    // ── AI SHOPPING LIST ──────────────────────────────────────
+  let shoppingList = [];
+  function addShoppingItem() {
+    const input = document.getElementById('shop-input');
+    if(!input.value) return;
+    shoppingList.push(input.value);
+    input.value = '';
+    renderShopping();
+  }
+  function renderShopping() {
+    const el = document.getElementById('shopping-list');
+    el.innerHTML = shoppingList.map((item,i) => `
+      <div class="shop-item">
+        <span>${item}</span>
+        <button onclick="shoppingList.splice(${i},1);renderShopping()">✕</button>
+      </div>
+    `).join('');
   }
 
-  function toggleShop(i) {
-    document.getElementById('si-'+i).classList.toggle('done');
-    document.getElementById('sc-'+i).classList.toggle('on');
-  }
-
-  function copyList() {
-    const items = Array.from(document.querySelectorAll('#shop-list .shop-item span')).map(s=>s.textContent);
-    navigator.clipboard.writeText(items.map(i=>'[ ] '+i).join('\n')).then(() => {
-      const b = document.querySelector('.btn-copy-list');
-      b.textContent = '✓ COPIED';
-      setTimeout(() => b.textContent = 'COPY LIST', 2000);
+  let currentMood = 5;
+  function setMood(m) {
+    currentMood = m;
+    document.querySelectorAll('.star').forEach((s,i)=>{
+      if(i<m) s.classList.add('on');
+      else s.classList.remove('on');
     });
+    const txts = ['','CRITICAL','ROUGH','STABLE','GOOD','EXCELLENT'];
+    document.getElementById('mood-text').innerText = txts[m];
   }
 
-  // ── BANNER ─────────────────────────────────────────────────
-  function toggleBanner(i) {
-    document.getElementById('bi-'+i).classList.toggle('done');
-    document.getElementById('bc-'+i).classList.toggle('on');
+  async function syncToDrive() {
+    const btnText = document.getElementById('btn-text');
+    const project = document.getElementById('project-name').value;
+    const date = document.getElementById('log-date').value;
+    const did = document.getElementById('work-did').value;
+    const need = document.getElementById('work-need').value;
+
+    if(!project) { alert("Enter a project name first."); return; }
+
+    const logData = { project, date, did, need, mood: currentMood, shopping: shoppingList };
+    
+    // REPLACE WITH YOUR GOOGLE URL
+    const GOOGLE_SCRIPT_URL = 'PASTE_YOUR_URL_HERE'; 
+
+    btnText.innerText = "SYNCING...";
+
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: JSON.stringify(logData)
+      });
+
+      // --- THE AUTO-CLEAR LOGIC ---
+      localStorage.removeItem('hrc_logs'); 
+      shoppingList = []; 
+      document.getElementById('project-name').value = '';
+      document.getElementById('work-did').value = '';
+      document.getElementById('work-need').value = '';
+      
+      renderShopping();
+      renderHistory(); 
+      showScanner(); 
+      
+      btnText.innerText = "SYNC TO DRIVE & CLEAR";
+      alert("Sent to Drive. Screen wiped clean.");
+
+    } catch (err) {
+      btnText.innerText = "SYNC TO DRIVE & CLEAR";
+      alert("Error: Check internet connection.");
+    }
   }
-  function dismissBanner() {
-    document.getElementById('tomorrow-banner').classList.remove('show');
-    localStorage.removeItem('hrc_tomorrow');
+
+  function showScanner() {
+    const s = document.getElementById('scan-overlay');
+    s.classList.add('active');
+    setTimeout(() => s.classList.remove('active'), 1200);
   }
 
   // ── HISTORY ────────────────────────────────────────────────
